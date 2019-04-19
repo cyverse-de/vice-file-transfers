@@ -176,6 +176,11 @@ func main() {
 
 	flag.Parse()
 
+	_, err := exec.LookPath("porklock")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	app := &App{
 		LogDirectory: *logDirectory,
 		AnalysisID:   *analysisID,
