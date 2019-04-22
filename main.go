@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"sync"
+	"syscall"
 
 	"github.com/gorilla/mux"
 	flags "github.com/jessevdk/go-flags"
@@ -41,7 +42,7 @@ type App struct {
 
 func (a *App) downloadCommand() []string {
 	retval := []string{
-		"porklock",
+		"java",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"get",
@@ -88,40 +89,42 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			downloadRunning = true
 			downloadRunningMutex.Unlock()
 
+			defer func() {
+				downloadRunningMutex.Lock()
+				downloadRunning = false
+				downloadRunningMutex.Unlock()
+			}()
+
 			downloadLogStdoutPath = path.Join(a.LogDirectory, "downloads.stdout.log")
 			downloadLogStdoutFile, err = os.Create(downloadLogStdoutPath)
 			if err != nil {
-				err = errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath)
+				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath))
+				return
 
 			}
 
-			if err == nil {
-				downloadLogStderrPath = path.Join(a.LogDirectory, "downloads.stderr.log")
-				downloadLogStderrFile, err = os.Create(downloadLogStderrPath)
-				if err != nil {
-					err = errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath)
-				}
-			}
-
-			if err == nil {
-				parts := a.downloadCommand()
-				cmd := exec.Command(parts[0], parts[1:]...)
-				cmd.Stdout = downloadLogStdoutFile
-				cmd.Stderr = downloadLogStderrFile
-				if err = cmd.Run(); err != nil {
-					err = errors.Wrap(err, "error running porklock for downloads")
-				}
-			}
-
-			downloadRunningMutex.Lock()
-			downloadRunning = false
-			downloadRunningMutex.Unlock()
-
+			downloadLogStderrPath = path.Join(a.LogDirectory, "downloads.stderr.log")
+			downloadLogStderrFile, err = os.Create(downloadLogStderrPath)
 			if err != nil {
-				log.Error(err)
-			} else {
-				log.Info("exiting download goroutine without errors")
+				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath))
+				return
 			}
+
+			parts := a.downloadCommand()
+			cmd := exec.Command(parts[0], parts[1:]...)
+			cmd.Stdout = downloadLogStdoutFile
+			cmd.Stderr = downloadLogStderrFile
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+			cmd.SysProcAttr.Credential = &syscall.Credential{
+				Uid: uint32(os.Getuid()),
+				Gid: uint32(os.Getgid()),
+			}
+			if err = cmd.Run(); err != nil {
+				log.Error(errors.Wrap(err, "error running porklock for downloads"))
+				return
+			}
+
+			log.Info("exiting download goroutine without errors")
 		}()
 	} else {
 		log.Info("not running a download gorouting for this request")
