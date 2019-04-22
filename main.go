@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/mux"
+	flags "github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -32,25 +32,27 @@ type App struct {
 	LogDirectory  string
 	User          string
 	Destination   string
-	AnalysisID    string
 	InvocationID  string
 	InputPathList string
 	ExcludesPath  string
 	ConfigPath    string
+	FileMetadata  []string
 }
 
 func (a *App) downloadCommand() []string {
-	return []string{
+	retval := []string{
 		"porklock",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"get",
 		"--user", a.User,
 		"--source-list", a.InputPathList,
-		"-m", fmt.Sprintf("ipc-analysis-id,%s,UUID", a.AnalysisID),
-		"-m", fmt.Sprintf("ipc-execution-id,%s,UUID", a.InvocationID),
 		"-z", a.ConfigPath,
 	}
+	for _, fm := range a.FileMetadata {
+		retval = append(retval, "-m", fm)
+	}
+	return retval
 }
 
 func (a *App) fileUseable(aPath string) bool {
@@ -108,18 +110,20 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 }
 
 func (a *App) uploadCommand() []string {
-	return []string{
+	retval := []string{
 		"porklock",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"put",
 		"--user", a.User,
 		"--destination", a.Destination,
-		"-m", fmt.Sprintf("ipc-analysis-id,%s,UUID", a.AnalysisID),
-		"-m", fmt.Sprintf("ipc-execution-id,%s,UUID", a.InvocationID),
 		"--exclude", a.ExcludesPath,
 		"-z", a.ConfigPath,
 	}
+	for _, fm := range a.FileMetadata {
+		retval = append(retval, "-m", fm)
+	}
+	return retval
 }
 
 // UploadFiles handles requests to upload files.
@@ -170,19 +174,24 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-	var (
-		listenPort   = flag.Int("listen-port", 60000, "The port to listen on for requests")
-		logDirectory = flag.String("log-dir", "/input-files", "The directory in which to write log files")
-		user         = flag.String("user", "", "The user to run the transfers for")
-		destination  = flag.String("destination", "", "The destination directory for uploads")
-		excludesFile = flag.String("excludes-file", "/excludes/excludes-file", "The path to the excludes file")
-		pathListFile = flag.String("path-list-file", "/input-paths/input-path-list", "The path to the input paths list file")
-		irodsConfig  = flag.String("irods-config", "/etc/porklock/irods-config.properties", "The path to the porklock iRODS connection configuration file")
-		analysisID   = flag.String("analysis-id", "", "The UUID for the DE Analysis the transfers are a part of")
-		invocationID = flag.String("invocation-id", "", "The invocation UUID")
-	)
+	var options struct {
+		ListenPort   int      `short:"l" long:"listen-port" default:"60001" description:"The port to listen on for requests"`
+		LogDirectory string   `long:"log-dir" default:"/input-files" description:"The directory in which to write log files"`
+		User         string   `long:"user" required:"true" description:"The user to run the transfers for"`
+		Destination  string   `long:"destination" required:"true" description:"The destination directory for uploads"`
+		ExcludesFile string   `long:"excludes-file" default:"/excludes/excludes-file" description:"The path to the excludes file"`
+		PathListFile string   `long:"path-list-file" default:"/input-paths/input-path-list" description:"The path to the input paths list file"`
+		IRODSConfig  string   `long:"irods-config" default:"/etc/porklock/irods-config.properties" description:"The path to the porklock iRODS config file"`
+		InvocationID string   `long:"invocation-id" required:"true" description:"The invocation UUID"`
+		FileMetadata []string `short:"m" description:"Metadata to apply to files"`
+	}
 
-	flag.Parse()
+	if _, err := flags.Parse(&options); err != nil {
+		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
+			os.Exit(0)
+		}
+		log.Fatal(err)
+	}
 
 	_, err := exec.LookPath("porklock")
 	if err != nil {
@@ -190,20 +199,20 @@ func main() {
 	}
 
 	app := &App{
-		LogDirectory:  *logDirectory,
-		AnalysisID:    *analysisID,
-		InvocationID:  *invocationID,
-		ConfigPath:    *irodsConfig,
-		User:          *user,
-		Destination:   *destination,
-		ExcludesPath:  *excludesFile,
-		InputPathList: *pathListFile,
+		LogDirectory:  options.LogDirectory,
+		InvocationID:  options.InvocationID,
+		ConfigPath:    options.IRODSConfig,
+		User:          options.User,
+		Destination:   options.Destination,
+		ExcludesPath:  options.ExcludesFile,
+		InputPathList: options.PathListFile,
+		FileMetadata:  options.FileMetadata,
 	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/download", app.DownloadFiles).Methods(http.MethodPost)
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
 
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *listenPort), router))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
 
 }
