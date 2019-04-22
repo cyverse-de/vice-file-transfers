@@ -53,12 +53,19 @@ func (a *App) downloadCommand() []string {
 	}
 }
 
+func (a *App) fileUseable(aPath string) bool {
+	if _, err := os.Stat(aPath); err != nil {
+		return false
+	}
+	return true
+}
+
 // DownloadFiles handles requests to download files.
 func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received download request")
 
 	downloadRunningMutex.Lock()
-	shouldRun := !downloadRunning
+	shouldRun := !downloadRunning && a.fileUseable(a.InputPathList)
 	downloadRunning = true
 	downloadRunningMutex.Unlock()
 
@@ -169,6 +176,7 @@ func main() {
 		user         = flag.String("user", "", "The user to run the transfers for")
 		destination  = flag.String("destination", "", "The destination directory for uploads")
 		excludesFile = flag.String("excludes-file", "/excludes/excludes-file", "The path to the excludes file")
+		pathListFile = flag.String("path-list-file", "/input-paths/input-path-list", "The path to the input paths list file")
 		irodsConfig  = flag.String("irods-config", "/etc/porklock/irods-config.properties", "The path to the porklock iRODS connection configuration file")
 		analysisID   = flag.String("analysis-id", "", "The UUID for the DE Analysis the transfers are a part of")
 		invocationID = flag.String("invocation-id", "", "The invocation UUID")
@@ -182,13 +190,14 @@ func main() {
 	}
 
 	app := &App{
-		LogDirectory: *logDirectory,
-		AnalysisID:   *analysisID,
-		InvocationID: *invocationID,
-		ConfigPath:   *irodsConfig,
-		User:         *user,
-		Destination:  *destination,
-		ExcludesPath: *excludesFile,
+		LogDirectory:  *logDirectory,
+		AnalysisID:    *analysisID,
+		InvocationID:  *invocationID,
+		ConfigPath:    *irodsConfig,
+		User:          *user,
+		Destination:   *destination,
+		ExcludesPath:  *excludesFile,
+		InputPathList: *pathListFile,
 	}
 
 	router := mux.NewRouter()
