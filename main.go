@@ -76,14 +76,14 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			log.Info("running download goroutine")
 
 			downloadLogStdoutPath := path.Join(a.LogDirectory, "downloads.stdout.log")
-			downloadLogStdoutFile, err := os.Open(downloadLogStdoutPath)
+			downloadLogStdoutFile, err := os.Create(downloadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath))
 				return
 			}
 
 			downloadLogStderrPath := path.Join(a.LogDirectory, "downloads.stderr.log")
-			downloadLogStderrFile, err := os.Open(downloadLogStderrPath)
+			downloadLogStderrFile, err := os.Create(downloadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath))
 				return
@@ -138,14 +138,14 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			log.Info("running upload goroutine")
 
 			uploadLogStdoutPath := path.Join(a.LogDirectory, "uploads.stdout.log")
-			uploadLogStdoutFile, err := os.Open(uploadLogStdoutPath)
+			uploadLogStdoutFile, err := os.Create(uploadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStdoutPath))
 				return
 			}
 
 			uploadLogStderrPath := path.Join(a.LogDirectory, "uploads.stderr.log")
-			uploadLogStderrFile, err := os.Open(uploadLogStderrPath)
+			uploadLogStderrFile, err := os.Create(uploadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStderrPath))
 				return
