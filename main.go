@@ -68,7 +68,6 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 
 	downloadRunningMutex.Lock()
 	shouldRun := !downloadRunning && a.fileUseable(a.InputPathList)
-	downloadRunning = true
 	downloadRunningMutex.Unlock()
 
 	if shouldRun {
@@ -77,35 +76,55 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 		go func() {
 			log.Info("running download goroutine")
 
-			downloadLogStdoutPath := path.Join(a.LogDirectory, "downloads.stdout.log")
-			downloadLogStdoutFile, err := os.Create(downloadLogStdoutPath)
+			var (
+				downloadLogStderrFile *os.File
+				downloadLogStdoutFile *os.File
+				downloadLogStderrPath string
+				downloadLogStdoutPath string
+				err                   error
+			)
+
+			downloadRunningMutex.Lock()
+			downloadRunning = true
+			downloadRunningMutex.Unlock()
+
+			downloadLogStdoutPath = path.Join(a.LogDirectory, "downloads.stdout.log")
+			downloadLogStdoutFile, err = os.Create(downloadLogStdoutPath)
 			if err != nil {
-				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath))
-				return
+				err = errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath)
+
 			}
 
-			downloadLogStderrPath := path.Join(a.LogDirectory, "downloads.stderr.log")
-			downloadLogStderrFile, err := os.Create(downloadLogStderrPath)
-			if err != nil {
-				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath))
-				return
+			if err == nil {
+				downloadLogStderrPath = path.Join(a.LogDirectory, "downloads.stderr.log")
+				downloadLogStderrFile, err = os.Create(downloadLogStderrPath)
+				if err != nil {
+					err = errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath)
+				}
 			}
 
-			parts := a.downloadCommand()
-			cmd := exec.Command(parts[0], parts[1:]...)
-			cmd.Stdout = downloadLogStdoutFile
-			cmd.Stderr = downloadLogStderrFile
-			if err = cmd.Run(); err != nil {
-				log.Error(errors.Wrap(err, "error running porklock for downloads"))
-				return
+			if err == nil {
+				parts := a.downloadCommand()
+				cmd := exec.Command(parts[0], parts[1:]...)
+				cmd.Stdout = downloadLogStdoutFile
+				cmd.Stderr = downloadLogStderrFile
+				if err = cmd.Run(); err != nil {
+					err = errors.Wrap(err, "error running porklock for downloads")
+				}
 			}
 
 			downloadRunningMutex.Lock()
 			downloadRunning = false
 			downloadRunningMutex.Unlock()
 
-			log.Info("exiting download goroutine without errors")
+			if err != nil {
+				log.Error(err)
+			} else {
+				log.Info("exiting download goroutine without errors")
+			}
 		}()
+	} else {
+		log.Info("not running a download gorouting for this request")
 	}
 }
 
