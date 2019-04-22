@@ -93,7 +93,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd := exec.Command(parts[0], parts[1:]...)
 			cmd.Stdout = downloadLogStdoutFile
 			cmd.Stderr = downloadLogStderrFile
-			if err = cmd.Wait(); err != nil {
+			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
 				return
 			}
@@ -155,7 +155,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd := exec.Command(parts[0], parts[1:]...)
 			cmd.Stdout = uploadLogStdoutFile
 			cmd.Stderr = uploadLogStderrFile
-			if err = cmd.Wait(); err != nil {
+			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for uploads"))
 				return
 			}
