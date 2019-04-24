@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path"
 	"sync"
-	"syscall"
 
 	"github.com/gorilla/mux"
 	flags "github.com/jessevdk/go-flags"
@@ -30,24 +29,26 @@ var (
 
 // App contains application state.
 type App struct {
-	LogDirectory  string
-	User          string
-	Destination   string
-	InvocationID  string
-	InputPathList string
-	ExcludesPath  string
-	ConfigPath    string
-	FileMetadata  []string
+	LogDirectory        string
+	User                string
+	UploadDestination   string
+	DownloadDestination string
+	InvocationID        string
+	InputPathList       string
+	ExcludesPath        string
+	ConfigPath          string
+	FileMetadata        []string
 }
 
 func (a *App) downloadCommand() []string {
 	retval := []string{
-		"java",
+		"porklock",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"get",
 		"--user", a.User,
 		"--source-list", a.InputPathList,
+		"--destination", a.DownloadDestination,
 		"-z", a.ConfigPath,
 	}
 	for _, fm := range a.FileMetadata {
@@ -114,11 +115,6 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd := exec.Command(parts[0], parts[1:]...)
 			cmd.Stdout = downloadLogStdoutFile
 			cmd.Stderr = downloadLogStderrFile
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-			cmd.SysProcAttr.Credential = &syscall.Credential{
-				Uid: uint32(os.Getuid()),
-				Gid: uint32(os.Getgid()),
-			}
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
 				return
@@ -138,7 +134,7 @@ func (a *App) uploadCommand() []string {
 		"/usr/src/app/porklock-standalone.jar",
 		"put",
 		"--user", a.User,
-		"--destination", a.Destination,
+		"--destination", a.UploadDestination,
 		"--exclude", a.ExcludesPath,
 		"-z", a.ConfigPath,
 	}
@@ -197,15 +193,16 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 
 func main() {
 	var options struct {
-		ListenPort   int      `short:"l" long:"listen-port" default:"60001" description:"The port to listen on for requests"`
-		LogDirectory string   `long:"log-dir" default:"/input-files" description:"The directory in which to write log files"`
-		User         string   `long:"user" required:"true" description:"The user to run the transfers for"`
-		Destination  string   `long:"destination" required:"true" description:"The destination directory for uploads"`
-		ExcludesFile string   `long:"excludes-file" default:"/excludes/excludes-file" description:"The path to the excludes file"`
-		PathListFile string   `long:"path-list-file" default:"/input-paths/input-path-list" description:"The path to the input paths list file"`
-		IRODSConfig  string   `long:"irods-config" default:"/etc/porklock/irods-config.properties" description:"The path to the porklock iRODS config file"`
-		InvocationID string   `long:"invocation-id" required:"true" description:"The invocation UUID"`
-		FileMetadata []string `short:"m" description:"Metadata to apply to files"`
+		ListenPort          int      `short:"l" long:"listen-port" default:"60001" description:"The port to listen on for requests"`
+		LogDirectory        string   `long:"log-dir" default:"/input-files" description:"The directory in which to write log files"`
+		User                string   `long:"user" required:"true" description:"The user to run the transfers for"`
+		UploadDestination   string   `long:"upload-destination" required:"true" description:"The destination directory for uploads"`
+		DownloadDestination string   `long:"download-destination" default:"/input-files" description:"The destination directory for downloads"`
+		ExcludesFile        string   `long:"excludes-file" default:"/excludes/excludes-file" description:"The path to the excludes file"`
+		PathListFile        string   `long:"path-list-file" default:"/input-paths/input-path-list" description:"The path to the input paths list file"`
+		IRODSConfig         string   `long:"irods-config" default:"/etc/porklock/irods-config.properties" description:"The path to the porklock iRODS config file"`
+		InvocationID        string   `long:"invocation-id" required:"true" description:"The invocation UUID"`
+		FileMetadata        []string `short:"m" description:"Metadata to apply to files"`
 	}
 
 	if _, err := flags.Parse(&options); err != nil {
@@ -221,14 +218,15 @@ func main() {
 	}
 
 	app := &App{
-		LogDirectory:  options.LogDirectory,
-		InvocationID:  options.InvocationID,
-		ConfigPath:    options.IRODSConfig,
-		User:          options.User,
-		Destination:   options.Destination,
-		ExcludesPath:  options.ExcludesFile,
-		InputPathList: options.PathListFile,
-		FileMetadata:  options.FileMetadata,
+		LogDirectory:        options.LogDirectory,
+		InvocationID:        options.InvocationID,
+		ConfigPath:          options.IRODSConfig,
+		User:                options.User,
+		UploadDestination:   options.UploadDestination,
+		DownloadDestination: options.DownloadDestination,
+		ExcludesPath:        options.ExcludesFile,
+		InputPathList:       options.PathListFile,
+		FileMetadata:        options.FileMetadata,
 	}
 
 	router := mux.NewRouter()
