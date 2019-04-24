@@ -134,6 +134,7 @@ func (a *App) uploadCommand() []string {
 		"/usr/src/app/porklock-standalone.jar",
 		"put",
 		"--user", a.User,
+		"--source", a.DownloadDestination,
 		"--destination", a.UploadDestination,
 		"--exclude", a.ExcludesPath,
 		"-z", a.ConfigPath,
