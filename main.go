@@ -14,6 +14,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const nonBlockingKey = "non-blocking"
+
 var log = logrus.WithFields(logrus.Fields{
 	"service": "vice-file-transfers",
 	"art-id":  "vice-file-transfers",
@@ -38,8 +40,8 @@ type App struct {
 	ExcludesPath        string
 	ConfigPath          string
 	FileMetadata        []string
-	downloadWait        chan int
-	uploadWait          chan int
+	downloadWait        sync.WaitGroup
+	uploadWait          sync.WaitGroup
 }
 
 func (a *App) downloadCommand() []string {
@@ -79,6 +81,8 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	if shouldRun {
 		log.Info("starting download goroutine")
 
+		a.downloadWait.Add(1)
+
 		go func() {
 			log.Info("running download goroutine")
 
@@ -98,6 +102,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 				downloadRunningMutex.Lock()
 				downloadRunning = false
 				downloadRunningMutex.Unlock()
+				a.downloadWait.Done()
 			}()
 
 			downloadLogStdoutPath = path.Join(a.LogDirectory, "downloads.stdout.log")
@@ -124,14 +129,18 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 				return
 			}
 
-			a.downloadWait <- 1
-
 			log.Info("exiting download goroutine without errors")
 		}()
 	}
-	// empty string means it's a blocking request
-	if nonBlocking == "" {
-		<-a.downloadWait
+
+	fmt.Printf("non-blocking: %s\tdownloadRunning: %t\n", nonBlocking, downloadRunning)
+
+	downloadRunningMutex.Lock()
+	block := (nonBlocking == "" && (downloadRunning || shouldRun))
+	downloadRunningMutex.Unlock()
+
+	if block {
+		a.downloadWait.Wait()
 	}
 }
 
@@ -153,8 +162,6 @@ func (a *App) uploadCommand() []string {
 	return retval
 }
 
-const nonBlockingKey = "nonblocking"
-
 // UploadFiles handles requests to upload files.
 func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received upload request")
@@ -169,8 +176,17 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	if shouldRun {
 		log.Info("starting upload goroutine")
 
+		a.uploadWait.Add(1)
+
 		go func() {
 			log.Info("running upload goroutine")
+
+			defer func() {
+				uploadRunningMutex.Lock()
+				uploadRunning = false
+				uploadRunningMutex.Unlock()
+				a.uploadWait.Done()
+			}()
 
 			uploadLogStdoutPath := path.Join(a.LogDirectory, "uploads.stdout.log")
 			uploadLogStdoutFile, err := os.Create(uploadLogStdoutPath)
@@ -195,19 +211,17 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 				return
 			}
 
-			uploadRunningMutex.Lock()
-			uploadRunning = false
-			uploadRunningMutex.Unlock()
-
-			a.uploadWait <- 1
-
 			log.Info("exiting upload goroutine without errors")
 		}()
 	}
 
+	uploadRunningMutex.Lock()
+	block := (nonBlocking == "" && (uploadRunning || shouldRun))
+	uploadRunningMutex.Unlock()
+
 	// empty string means it's a blocking request
-	if nonBlocking == "" {
-		<-a.uploadWait
+	if block {
+		a.uploadWait.Wait()
 	}
 }
 
@@ -247,8 +261,8 @@ func main() {
 		ExcludesPath:        options.ExcludesFile,
 		InputPathList:       options.PathListFile,
 		FileMetadata:        options.FileMetadata,
-		downloadWait:        make(chan int),
-		uploadWait:          make(chan int),
+		downloadWait:        sync.WaitGroup{},
+		uploadWait:          sync.WaitGroup{},
 	}
 
 	router := mux.NewRouter()
