@@ -38,6 +38,8 @@ type App struct {
 	ExcludesPath        string
 	ConfigPath          string
 	FileMetadata        []string
+	downloadWait        chan int
+	uploadWait          chan int
 }
 
 func (a *App) downloadCommand() []string {
@@ -67,6 +69,8 @@ func (a *App) fileUseable(aPath string) bool {
 // DownloadFiles handles requests to download files.
 func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received download request")
+
+	nonBlocking := req.FormValue(nonBlockingKey)
 
 	downloadRunningMutex.Lock()
 	shouldRun := !downloadRunning && a.fileUseable(a.InputPathList)
@@ -120,10 +124,14 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 				return
 			}
 
+			a.downloadWait <- 1
+
 			log.Info("exiting download goroutine without errors")
 		}()
-	} else {
-		log.Info("not running a download gorouting for this request")
+	}
+	// empty string means it's a blocking request
+	if nonBlocking == "" {
+		<-a.downloadWait
 	}
 }
 
@@ -145,9 +153,13 @@ func (a *App) uploadCommand() []string {
 	return retval
 }
 
+const nonBlockingKey = "nonblocking"
+
 // UploadFiles handles requests to upload files.
 func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received upload request")
+
+	nonBlocking := req.FormValue(nonBlockingKey)
 
 	uploadRunningMutex.Lock()
 	shouldRun := !uploadRunning
@@ -187,8 +199,15 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			uploadRunning = false
 			uploadRunningMutex.Unlock()
 
+			a.uploadWait <- 1
+
 			log.Info("exiting upload goroutine without errors")
 		}()
+	}
+
+	// empty string means it's a blocking request
+	if nonBlocking == "" {
+		<-a.uploadWait
 	}
 }
 
@@ -228,10 +247,15 @@ func main() {
 		ExcludesPath:        options.ExcludesFile,
 		InputPathList:       options.PathListFile,
 		FileMetadata:        options.FileMetadata,
+		downloadWait:        make(chan int),
+		uploadWait:          make(chan int),
 	}
 
 	router := mux.NewRouter()
+	router.HandleFunc("/download", app.DownloadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/download", app.DownloadFiles).Methods(http.MethodPost)
+
+	router.HandleFunc("/upload", app.UploadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
