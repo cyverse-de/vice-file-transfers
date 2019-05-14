@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/gorilla/mux"
 	flags "github.com/jessevdk/go-flags"
@@ -29,6 +30,37 @@ var (
 	downloadRunningMutex sync.Mutex
 )
 
+const (
+	// UploadKind represents an upload record
+	UploadKind = "upload"
+
+	// DownloadKind represents an download record
+	DownloadKind = "download"
+
+	// RequestedStatus means the the transfer has been requested but hasn't started
+	RequestedStatus = "requested"
+
+	// DownloadingStatus means that a downloading request is running
+	DownloadingStatus = "downloading"
+
+	// UploadingStatus means that an uploading request is running
+	UploadingStatus = "uploading"
+
+	// FailedStatus means that the transfer request failed
+	FailedStatus = "failed"
+
+	//CompletedStatus means that the transfer request succeeded
+	CompletedStatus = "completed"
+)
+
+// TransferRecord records info about uploads and downloads.
+type TransferRecord struct {
+	StartTime      time.Time
+	CompletionTime time.Time
+	Status         string
+	Kind           string
+}
+
 // App contains application state.
 type App struct {
 	LogDirectory        string
@@ -42,6 +74,8 @@ type App struct {
 	FileMetadata        []string
 	downloadWait        sync.WaitGroup
 	uploadWait          sync.WaitGroup
+	uploadRecords       []TransferRecord
+	downloadRecords     []TransferRecord
 }
 
 func (a *App) downloadCommand() []string {
@@ -263,6 +297,8 @@ func main() {
 		FileMetadata:        options.FileMetadata,
 		downloadWait:        sync.WaitGroup{},
 		uploadWait:          sync.WaitGroup{},
+		uploadRecords:       []TransferRecord{},
+		downloadRecords:     []TransferRecord{},
 	}
 
 	router := mux.NewRouter()
