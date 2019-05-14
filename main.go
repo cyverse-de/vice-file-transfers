@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/pkg/errors"
@@ -55,10 +56,33 @@ const (
 
 // TransferRecord records info about uploads and downloads.
 type TransferRecord struct {
+	UUID           uuid.UUID
 	StartTime      time.Time
 	CompletionTime time.Time
 	Status         string
 	Kind           string
+}
+
+// NewDownloadRecord returns a TransferRecord filled out with a UUID,
+// StartTime, Status of "requested", and a Kind of "download".
+func NewDownloadRecord() *TransferRecord {
+	return &TransferRecord{
+		UUID:      uuid.New(),
+		StartTime: time.Now(),
+		Status:    RequestedStatus,
+		Kind:      DownloadKind,
+	}
+}
+
+// NewUploadRecord returns a TransferRecord filled out with a UUID,
+// StartTime, Status of "requested", and a Kind of "upload".
+func NewUploadRecord() *TransferRecord {
+	return &TransferRecord{
+		UUID:      uuid.New(),
+		StartTime: time.Now(),
+		Status:    RequestedStatus,
+		Kind:      DownloadKind,
+	}
 }
 
 // App contains application state.
@@ -106,6 +130,7 @@ func (a *App) fileUseable(aPath string) bool {
 func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received download request")
 
+	downloadRecord := NewDownloadRecord()
 	nonBlocking := req.FormValue(nonBlockingKey)
 
 	downloadRunningMutex.Lock()
@@ -130,11 +155,14 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 
 			downloadRunningMutex.Lock()
 			downloadRunning = true
+			downloadRecord.Status = DownloadingStatus
 			downloadRunningMutex.Unlock()
 
 			defer func() {
 				downloadRunningMutex.Lock()
 				downloadRunning = false
+				downloadRecord.CompletionTime = time.Now()
+				a.downloadRecords = append(a.downloadRecords, *downloadRecord)
 				downloadRunningMutex.Unlock()
 				a.downloadWait.Done()
 			}()
@@ -143,6 +171,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			downloadLogStdoutFile, err = os.Create(downloadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath))
+				downloadRecord.Status = FailedStatus
 				return
 
 			}
@@ -151,6 +180,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			downloadLogStderrFile, err = os.Create(downloadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath))
+				downloadRecord.Status = FailedStatus
 				return
 			}
 
@@ -160,9 +190,11 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd.Stderr = downloadLogStderrFile
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
+				downloadRecord.Status = FailedStatus
 				return
 			}
 
+			downloadRecord.Status = CompletedStatus
 			log.Info("exiting download goroutine without errors")
 		}()
 	}
@@ -199,6 +231,7 @@ func (a *App) uploadCommand() []string {
 // UploadFiles handles requests to upload files.
 func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received upload request")
+	uploadRecord := NewUploadRecord()
 
 	nonBlocking := req.FormValue(nonBlockingKey)
 
@@ -218,6 +251,8 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			defer func() {
 				uploadRunningMutex.Lock()
 				uploadRunning = false
+				uploadRecord.CompletionTime = time.Now()
+				a.uploadRecords = append(a.uploadRecords, *uploadRecord)
 				uploadRunningMutex.Unlock()
 				a.uploadWait.Done()
 			}()
@@ -226,6 +261,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			uploadLogStdoutFile, err := os.Create(uploadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStdoutPath))
+				uploadRecord.Status = FailedStatus
 				return
 			}
 
@@ -233,6 +269,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			uploadLogStderrFile, err := os.Create(uploadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStderrPath))
+				uploadRecord.Status = FailedStatus
 				return
 			}
 
@@ -242,9 +279,11 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd.Stderr = uploadLogStderrFile
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for uploads"))
+				uploadRecord.Status = FailedStatus
 				return
 			}
 
+			uploadRecord.Status = CompletedStatus
 			log.Info("exiting upload goroutine without errors")
 		}()
 	}
