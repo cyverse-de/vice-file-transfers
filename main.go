@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -208,6 +209,58 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	if block {
 		a.downloadWait.Wait()
 	}
+}
+
+// GetDownloadStatus returns the status of the possibly running download.
+func (a *App) GetDownloadStatus(writer http.ResponseWriter, request *http.Request) {
+	id := mux.Vars(request)["id"]
+
+	var foundRecord *TransferRecord
+	for _, dr := range a.downloadRecords {
+		if dr.UUID.String() == id {
+			foundRecord = &dr
+		}
+	}
+	if foundRecord == nil {
+		writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+	var (
+		buf []byte
+		err error
+	)
+	if buf, err = json.Marshal(foundRecord); err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		log.Error(err)
+		return
+	}
+	writer.Write(buf)
+}
+
+// GetUploadStatus returns the status of the possibly running upload.
+func (a *App) GetUploadStatus(writer http.ResponseWriter, request *http.Request) {
+	id := mux.Vars(request)["id"]
+
+	var foundRecord *TransferRecord
+	for _, dr := range a.uploadRecords {
+		if dr.UUID.String() == id {
+			foundRecord = &dr
+		}
+	}
+	if foundRecord == nil {
+		writer.WriteHeader(http.StatusNotFound)
+		return
+	}
+	var (
+		buf []byte
+		err error
+	)
+	if buf, err = json.Marshal(foundRecord); err != nil {
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		log.Error(err)
+		return
+	}
+	writer.Write(buf)
 }
 
 func (a *App) uploadCommand() []string {
