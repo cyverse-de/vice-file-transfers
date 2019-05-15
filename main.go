@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -57,11 +58,12 @@ const (
 
 // TransferRecord records info about uploads and downloads.
 type TransferRecord struct {
-	UUID           uuid.UUID
-	StartTime      time.Time
-	CompletionTime time.Time
-	Status         string
-	Kind           string
+	UUID           uuid.UUID `json:"uuid"`
+	StartTime      time.Time `json:"start_time"`
+	CompletionTime time.Time `json:"completion_time"`
+	Status         string    `json:"status"`
+	Kind           string    `json:"kind"`
+	mutex          sync.Mutex
 }
 
 // NewDownloadRecord returns a TransferRecord filled out with a UUID,
@@ -86,6 +88,68 @@ func NewUploadRecord() *TransferRecord {
 	}
 }
 
+// MarshalAndWrite serializes the TransferRecord to json and writes it out using writer.
+func (r *TransferRecord) MarshalAndWrite(writer io.Writer) error {
+	var (
+		recordbytes []byte
+		err         error
+	)
+
+	r.mutex.Lock()
+	if recordbytes, err = json.Marshal(r); err != nil {
+		r.mutex.Unlock()
+		return errors.Wrap(err, "error serializing download record")
+	}
+	r.mutex.Unlock()
+
+	_, err = writer.Write(recordbytes)
+	return err
+}
+
+// SetCompletionTime sets the CompletionTime field for the TransferRecord to the current time.
+func (r *TransferRecord) SetCompletionTime() {
+	r.mutex.Lock()
+	r.CompletionTime = time.Now()
+	r.mutex.Unlock()
+}
+
+// SetStatus sets the Status field for the TransferRecord to the provided value.
+func (r *TransferRecord) SetStatus(status string) {
+	r.mutex.Lock()
+	r.Status = status
+	r.mutex.Unlock()
+}
+
+// HistoricalRecords maintains a list of []*TransferRecords and provides thread-safe access
+// to them.
+type HistoricalRecords struct {
+	records []*TransferRecord
+	mutex   sync.Mutex
+}
+
+// Append adds another *TransferRecord to the list.
+func (h *HistoricalRecords) Append(tr *TransferRecord) {
+	h.mutex.Lock()
+	h.records = append(h.records, tr)
+	h.mutex.Unlock()
+}
+
+// FindRecord looks up a record by UUID and returns the pointer to it. The lookup is locked
+// to prevent dirty reads. Return value will be nil if no records are found with the provided
+// id.
+func (h *HistoricalRecords) FindRecord(id string) *TransferRecord {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for _, dr := range h.records {
+		if dr.UUID.String() == id {
+			return dr
+		}
+	}
+
+	return nil
+}
+
 // App contains application state.
 type App struct {
 	LogDirectory        string
@@ -99,8 +163,8 @@ type App struct {
 	FileMetadata        []string
 	downloadWait        sync.WaitGroup
 	uploadWait          sync.WaitGroup
-	uploadRecords       []TransferRecord
-	downloadRecords     []TransferRecord
+	uploadRecords       *HistoricalRecords
+	downloadRecords     *HistoricalRecords
 }
 
 func (a *App) downloadCommand() []string {
@@ -132,6 +196,8 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received download request")
 
 	downloadRecord := NewDownloadRecord()
+	a.downloadRecords.Append(downloadRecord)
+
 	nonBlocking := req.FormValue(nonBlockingKey)
 
 	downloadRunningMutex.Lock()
@@ -156,15 +222,17 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 
 			downloadRunningMutex.Lock()
 			downloadRunning = true
-			downloadRecord.Status = DownloadingStatus
 			downloadRunningMutex.Unlock()
 
+			downloadRecord.SetStatus(DownloadingStatus)
+
 			defer func() {
+				downloadRecord.SetCompletionTime()
+
 				downloadRunningMutex.Lock()
 				downloadRunning = false
-				downloadRecord.CompletionTime = time.Now()
-				a.downloadRecords = append(a.downloadRecords, *downloadRecord)
 				downloadRunningMutex.Unlock()
+
 				a.downloadWait.Done()
 			}()
 
@@ -172,7 +240,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			downloadLogStdoutFile, err = os.Create(downloadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStdoutPath))
-				downloadRecord.Status = FailedStatus
+				downloadRecord.SetStatus(FailedStatus)
 				return
 
 			}
@@ -181,7 +249,7 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			downloadLogStderrFile, err = os.Create(downloadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", downloadLogStderrPath))
-				downloadRecord.Status = FailedStatus
+				downloadRecord.SetStatus(FailedStatus)
 				return
 			}
 
@@ -189,13 +257,15 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd := exec.Command(parts[0], parts[1:]...)
 			cmd.Stdout = downloadLogStdoutFile
 			cmd.Stderr = downloadLogStderrFile
+
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
-				downloadRecord.Status = FailedStatus
+				downloadRecord.SetStatus(FailedStatus)
 				return
 			}
 
-			downloadRecord.Status = CompletedStatus
+			downloadRecord.SetStatus(CompletedStatus)
+
 			log.Info("exiting download goroutine without errors")
 		}()
 	}
@@ -209,58 +279,43 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	if block {
 		a.downloadWait.Wait()
 	}
+
+	if err := downloadRecord.MarshalAndWrite(writer); err != nil {
+		log.Error(err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // GetDownloadStatus returns the status of the possibly running download.
 func (a *App) GetDownloadStatus(writer http.ResponseWriter, request *http.Request) {
 	id := mux.Vars(request)["id"]
 
-	var foundRecord *TransferRecord
-	for _, dr := range a.downloadRecords {
-		if dr.UUID.String() == id {
-			foundRecord = &dr
-		}
-	}
+	foundRecord := a.downloadRecords.FindRecord(id)
 	if foundRecord == nil {
 		writer.WriteHeader(http.StatusNotFound)
 		return
 	}
-	var (
-		buf []byte
-		err error
-	)
-	if buf, err = json.Marshal(foundRecord); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+
+	if err := foundRecord.MarshalAndWrite(writer); err != nil {
 		log.Error(err)
-		return
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
-	writer.Write(buf)
 }
 
 // GetUploadStatus returns the status of the possibly running upload.
 func (a *App) GetUploadStatus(writer http.ResponseWriter, request *http.Request) {
 	id := mux.Vars(request)["id"]
 
-	var foundRecord *TransferRecord
-	for _, dr := range a.uploadRecords {
-		if dr.UUID.String() == id {
-			foundRecord = &dr
-		}
-	}
+	foundRecord := a.uploadRecords.FindRecord(id)
 	if foundRecord == nil {
 		writer.WriteHeader(http.StatusNotFound)
 		return
 	}
-	var (
-		buf []byte
-		err error
-	)
-	if buf, err = json.Marshal(foundRecord); err != nil {
-		http.Error(writer, err.Error(), http.StatusInternalServerError)
+
+	if err := foundRecord.MarshalAndWrite(writer); err != nil {
 		log.Error(err)
-		return
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
-	writer.Write(buf)
 }
 
 func (a *App) uploadCommand() []string {
@@ -284,7 +339,9 @@ func (a *App) uploadCommand() []string {
 // UploadFiles handles requests to upload files.
 func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	log.Info("received upload request")
+
 	uploadRecord := NewUploadRecord()
+	a.uploadRecords.Append(uploadRecord)
 
 	nonBlocking := req.FormValue(nonBlockingKey)
 
@@ -302,11 +359,12 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			log.Info("running upload goroutine")
 
 			defer func() {
+				uploadRecord.SetCompletionTime()
+
 				uploadRunningMutex.Lock()
 				uploadRunning = false
-				uploadRecord.CompletionTime = time.Now()
-				a.uploadRecords = append(a.uploadRecords, *uploadRecord)
 				uploadRunningMutex.Unlock()
+
 				a.uploadWait.Done()
 			}()
 
@@ -314,7 +372,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			uploadLogStdoutFile, err := os.Create(uploadLogStdoutPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStdoutPath))
-				uploadRecord.Status = FailedStatus
+				uploadRecord.SetStatus(FailedStatus)
 				return
 			}
 
@@ -322,7 +380,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			uploadLogStderrFile, err := os.Create(uploadLogStderrPath)
 			if err != nil {
 				log.Error(errors.Wrapf(err, "failed to open file %s", uploadLogStderrPath))
-				uploadRecord.Status = FailedStatus
+				uploadRecord.SetStatus(FailedStatus)
 				return
 			}
 
@@ -330,13 +388,15 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 			cmd := exec.Command(parts[0], parts[1:]...)
 			cmd.Stdout = uploadLogStdoutFile
 			cmd.Stderr = uploadLogStderrFile
+
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for uploads"))
-				uploadRecord.Status = FailedStatus
+				uploadRecord.SetStatus(FailedStatus)
 				return
 			}
 
-			uploadRecord.Status = CompletedStatus
+			uploadRecord.SetStatus(CompletedStatus)
+
 			log.Info("exiting upload goroutine without errors")
 		}()
 	}
@@ -348,6 +408,11 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	// empty string means it's a blocking request
 	if block {
 		a.uploadWait.Wait()
+	}
+
+	if err := uploadRecord.MarshalAndWrite(writer); err != nil {
+		log.Error(err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
 	}
 }
 
@@ -389,16 +454,18 @@ func main() {
 		FileMetadata:        options.FileMetadata,
 		downloadWait:        sync.WaitGroup{},
 		uploadWait:          sync.WaitGroup{},
-		uploadRecords:       []TransferRecord{},
-		downloadRecords:     []TransferRecord{},
+		uploadRecords:       &HistoricalRecords{},
+		downloadRecords:     &HistoricalRecords{},
 	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/download", app.DownloadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/download", app.DownloadFiles).Methods(http.MethodPost)
+	router.HandleFunc("/download/{id}", app.GetDownloadStatus).Methods(http.MethodGet)
 
 	router.HandleFunc("/upload", app.UploadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
+	router.HandleFunc("/upload/status/{id}", app.GetUploadStatus).Methods(http.MethodGet)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
 
