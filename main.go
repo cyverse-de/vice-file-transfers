@@ -198,8 +198,6 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 	downloadRecord := NewDownloadRecord()
 	a.downloadRecords.Append(downloadRecord)
 
-	nonBlocking := req.FormValue(nonBlockingKey)
-
 	downloadRunningMutex.Lock()
 	shouldRun := !downloadRunning && a.fileUseable(a.InputPathList)
 	downloadRunningMutex.Unlock()
@@ -270,16 +268,6 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 		}()
 	}
 
-	fmt.Printf("non-blocking: %s\tdownloadRunning: %t\n", nonBlocking, downloadRunning)
-
-	downloadRunningMutex.Lock()
-	block := (nonBlocking == "" && (downloadRunning || shouldRun))
-	downloadRunningMutex.Unlock()
-
-	if block {
-		a.downloadWait.Wait()
-	}
-
 	if err := downloadRecord.MarshalAndWrite(writer); err != nil {
 		log.Error(err)
 		http.Error(writer, err.Error(), http.StatusInternalServerError)
@@ -343,8 +331,6 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	uploadRecord := NewUploadRecord()
 	a.uploadRecords.Append(uploadRecord)
 
-	nonBlocking := req.FormValue(nonBlockingKey)
-
 	uploadRunningMutex.Lock()
 	shouldRun := !uploadRunning
 	uploadRunning = true
@@ -399,15 +385,6 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 
 			log.Info("exiting upload goroutine without errors")
 		}()
-	}
-
-	uploadRunningMutex.Lock()
-	block := (nonBlocking == "" && (uploadRunning || shouldRun))
-	uploadRunningMutex.Unlock()
-
-	// empty string means it's a blocking request
-	if block {
-		a.uploadWait.Wait()
 	}
 
 	if err := uploadRecord.MarshalAndWrite(writer); err != nil {
