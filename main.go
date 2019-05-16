@@ -442,7 +442,7 @@ func main() {
 
 	router.HandleFunc("/upload", app.UploadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
-	router.HandleFunc("/upload/status/{id}", app.GetUploadStatus).Methods(http.MethodGet)
+	router.HandleFunc("/upload/{id}", app.GetUploadStatus).Methods(http.MethodGet)
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
 
