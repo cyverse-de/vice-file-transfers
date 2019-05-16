@@ -344,6 +344,8 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 		go func() {
 			log.Info("running upload goroutine")
 
+			uploadRecord.SetStatus(UploadingStatus)
+
 			defer func() {
 				uploadRecord.SetCompletionTime()
 
