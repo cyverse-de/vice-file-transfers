@@ -395,6 +395,11 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// Hello is an HTTP handler that simply says hello.
+func (a *App) Hello(writer http.ResponseWriter, request *http.Request) {
+	fmt.Fprintln(writer, "Hello from vice-file-transfers")
+}
+
 func main() {
 	var options struct {
 		ListenPort          int      `short:"l" long:"listen-port" default:"60001" description:"The port to listen on for requests"`
@@ -438,6 +443,7 @@ func main() {
 	}
 
 	router := mux.NewRouter()
+	router.HandleFunc("/", app.Hello).Methods(http.MethodGet)
 	router.HandleFunc("/download", app.DownloadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/download", app.DownloadFiles).Methods(http.MethodPost)
 	router.HandleFunc("/download/{id}", app.GetDownloadStatus).Methods(http.MethodGet)
