@@ -191,10 +191,8 @@ func (a *App) fileUseable(aPath string) bool {
 	return true
 }
 
-// DownloadFiles handles requests to download files.
-func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
-	log.Info("received download request")
-
+// DownloadFiles triggers a download and returns a *TransferRecord.
+func (a *App) DownloadFiles() *TransferRecord {
 	downloadRecord := NewDownloadRecord()
 	a.downloadRecords.Append(downloadRecord)
 
@@ -267,6 +265,15 @@ func (a *App) DownloadFiles(writer http.ResponseWriter, req *http.Request) {
 			log.Info("exiting download goroutine without errors")
 		}()
 	}
+
+	return downloadRecord
+}
+
+// DownloadFilesHandler handles requests to download files.
+func (a *App) DownloadFilesHandler(writer http.ResponseWriter, req *http.Request) {
+	log.Info("received download request")
+
+	downloadRecord := a.DownloadFiles()
 
 	if err := downloadRecord.MarshalAndWrite(writer); err != nil {
 		log.Error(err)
@@ -444,13 +451,16 @@ func main() {
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", app.Hello).Methods(http.MethodGet)
-	router.HandleFunc("/download", app.DownloadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
-	router.HandleFunc("/download", app.DownloadFiles).Methods(http.MethodPost)
+	router.HandleFunc("/download", app.DownloadFilesHandler).Queries(nonBlockingKey, "").Methods(http.MethodPost)
+	router.HandleFunc("/download", app.DownloadFilesHandler).Methods(http.MethodPost)
 	router.HandleFunc("/download/{id}", app.GetDownloadStatus).Methods(http.MethodGet)
 
 	router.HandleFunc("/upload", app.UploadFiles).Queries(nonBlockingKey, "").Methods(http.MethodPost)
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
 	router.HandleFunc("/upload/{id}", app.GetUploadStatus).Methods(http.MethodGet)
+
+	// Trigger downloads on startup.
+	app.DownloadFiles()
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
 
