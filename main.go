@@ -419,6 +419,7 @@ func main() {
 		IRODSConfig         string   `long:"irods-config" default:"/etc/porklock/irods-config.properties" description:"The path to the porklock iRODS config file"`
 		InvocationID        string   `long:"invocation-id" required:"true" description:"The invocation UUID"`
 		FileMetadata        []string `short:"m" description:"Metadata to apply to files"`
+		NoService           bool     `short:"n" long:"no-service" description:"Disables running as a continuous process. Effectively becomes a download tool"`
 	}
 
 	if _, err := flags.Parse(&options); err != nil {
@@ -459,9 +460,12 @@ func main() {
 	router.HandleFunc("/upload", app.UploadFiles).Methods(http.MethodPost)
 	router.HandleFunc("/upload/{id}", app.GetUploadStatus).Methods(http.MethodGet)
 
-	// Trigger downloads on startup.
-	app.DownloadFiles()
-
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
-
+	if !options.NoService {
+		log.Warn("Starting web server")
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", options.ListenPort), router))
+	} else {
+		log.Warn("Waiting for downloads to complete")
+		app.DownloadFiles()
+		app.downloadWait.Wait()
+	}
 }
