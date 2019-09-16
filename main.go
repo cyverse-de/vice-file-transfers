@@ -381,8 +381,8 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 
 			parts := a.uploadCommand()
 			cmd := exec.Command(parts[0], parts[1:]...)
-			cmd.Stdout = uploadLogStdoutFile
-			cmd.Stderr = uploadLogStderrFile
+			cmd.Stdout = io.MultiWriter(uploadLogStdoutFile, os.Stdout)
+			cmd.Stderr = io.MultiWriter(uploadLogStderrFile, os.Stderr)
 
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for uploads"))
