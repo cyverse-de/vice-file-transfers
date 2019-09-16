@@ -251,8 +251,8 @@ func (a *App) DownloadFiles() *TransferRecord {
 
 			parts := a.downloadCommand()
 			cmd := exec.Command(parts[0], parts[1:]...)
-			cmd.Stdout = io.MultiWriter(downloadLogStdoutFile, os.Stdout)
-			cmd.Stderr = io.MultiWriter(downloadLogStderrFile, os.Stderr)
+			cmd.Stdout = downloadLogStdoutFile
+			cmd.Stderr = downloadLogStderrFile
 
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
@@ -381,8 +381,8 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 
 			parts := a.uploadCommand()
 			cmd := exec.Command(parts[0], parts[1:]...)
-			cmd.Stdout = io.MultiWriter(uploadLogStdoutFile, os.Stdout)
-			cmd.Stderr = io.MultiWriter(uploadLogStderrFile, os.Stderr)
+			cmd.Stdout = uploadLogStdoutFile
+			cmd.Stderr = uploadLogStderrFile
 
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for uploads"))
