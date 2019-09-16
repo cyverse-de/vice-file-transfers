@@ -251,8 +251,8 @@ func (a *App) DownloadFiles() *TransferRecord {
 
 			parts := a.downloadCommand()
 			cmd := exec.Command(parts[0], parts[1:]...)
-			cmd.Stdout = downloadLogStdoutFile
-			cmd.Stderr = downloadLogStderrFile
+			cmd.Stdout = io.MultiWriter(downloadLogStdoutFile, os.Stdout)
+			cmd.Stderr = io.MultiWriter(downloadLogStderrFile, os.Stderr)
 
 			if err = cmd.Run(); err != nil {
 				log.Error(errors.Wrap(err, "error running porklock for downloads"))
