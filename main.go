@@ -176,7 +176,7 @@ func (a *App) downloadCommand() []string {
 		"--user", a.User,
 		"--source-list", a.InputPathList,
 		"--destination", a.DownloadDestination,
-		"-z", a.ConfigPath,
+		"-c", a.ConfigPath,
 	}
 	for _, fm := range a.FileMetadata {
 		retval = append(retval, "-m", fm)
@@ -323,7 +323,7 @@ func (a *App) uploadCommand() []string {
 		"--source", a.DownloadDestination,
 		"--destination", a.UploadDestination,
 		"--exclude", a.ExcludesPath,
-		"-z", a.ConfigPath,
+		"-c", a.ConfigPath,
 	}
 	for _, fm := range a.FileMetadata {
 		retval = append(retval, "-m", fm)
