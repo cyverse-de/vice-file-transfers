@@ -1,3 +1,4 @@
+ARG porklock_tag=latest
 FROM golang:1.12 as build-root
 
 RUN go get -u github.com/jstemmer/go-junit-report
@@ -20,7 +21,7 @@ RUN sh -c "go test -v | tee /dev/stderr | go-junit-report > test-results.xml"
 
 
 
-FROM discoenv/porklock:latest
+FROM harbor.cyverse.org/de/porklock:${porklock_tag}
 
 COPY --from=build-root /build/vice-file-transfers /
 COPY --from=build-root /build/test-results.xml /
