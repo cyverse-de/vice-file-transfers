@@ -18,6 +18,7 @@ timestamps {
                 dockerImage.push()
             }
             stage('Test') {
+                dockerTestRunner = "test-${env.BUILD_TAG}"
                 try {
                     sh "docker create --name ${dockerTestRunner} ${dockerRepo}"
                     sh "docker cp ${dockerTestRunner}:/test-results.xml ."
@@ -25,7 +26,7 @@ timestamps {
                 } finally {
                     junit 'test-results.xml'
 
-                    sh "docker run --rm --name ${dockerTestCleanup} -v \$(pwd):/build -w /build alpine rm -r test-results.xml"
+                    sh "docker run --rm -v \$(pwd):/build -w /build alpine rm -r test-results.xml"
                 }
             }
             stage('Docker Push') {
