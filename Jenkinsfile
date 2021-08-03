@@ -11,7 +11,7 @@ timestamps {
                 milestone 50
                 try {
                     dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}", "--build-arg porklock_tag=${env.BRANCH_NAME} .")
-                } catch {
+                } catch ( e ) {
                     dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}")
                 }
                 milestone 51
