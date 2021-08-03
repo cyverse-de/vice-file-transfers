@@ -20,7 +20,7 @@ timestamps {
             stage('Test') {
                 dockerTestRunner = "test-${env.BUILD_TAG}"
                 try {
-                    sh "docker create --name ${dockerTestRunner} ${dockerRepo}"
+                    sh "docker create --name ${dockerTestRunner} ${dockerImage.imageName()}"
                     sh "docker cp ${dockerTestRunner}:/test-results.xml ."
                     sh "docker rm ${dockerTestRunner}"
                 } finally {
