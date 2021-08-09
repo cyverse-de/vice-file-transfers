@@ -3,16 +3,16 @@
 milestone 0
 timestamps {
     node('docker') {
-        checkout scm
+        def commitHash = checkout(scm).GIT_COMMIT
 
         docker.withRegistry('https://harbor.cyverse.org', 'jenkins-harbor-credentials') {
             def dockerImage
             stage('Build') {
                 milestone 50
                 try {
-                    dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}", "--build-arg porklock_tag=${env.BRANCH_NAME} .")
+                    dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}", "--build-arg porklock_tag=${env.BRANCH_NAME} --build-arg git_commit=${commitHash} .")
                 } catch ( e ) {
-                    dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}")
+                    dockerImage = docker.build("harbor.cyverse.org/de/vice-file-transfers:${env.BUILD_TAG}", "--build-arg git_commit=${commitHash} .")
                 }
                 milestone 51
                 dockerImage.push()
