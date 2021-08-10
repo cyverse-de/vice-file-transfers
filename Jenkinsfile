@@ -21,7 +21,7 @@ timestamps {
                 dockerTestRunner = "test-${env.BUILD_TAG}"
                 try {
                     sh "docker run --rm -v \$(pwd):/build -w /build alpine rm -r test-results.xml"
-                } // okay to fail
+                } catch ( e ) {} // okay to fail
                 try {
                     sh "docker create --name ${dockerTestRunner} ${dockerImage.imageName()}"
                     sh "docker cp ${dockerTestRunner}:/test-results.xml ."
