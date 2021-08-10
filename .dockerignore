@@ -16,5 +16,6 @@ GIT_COMMIT
 VERSION
 build.xml
 test2junit
+test-results.xml
 Jenkinsfile
 service.properties
