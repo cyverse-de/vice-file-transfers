@@ -404,7 +404,7 @@ func (a *App) UploadFiles(writer http.ResponseWriter, req *http.Request) {
 
 // Hello is an HTTP handler that simply says hello.
 func (a *App) Hello(writer http.ResponseWriter, request *http.Request) {
-	fmt.Fprintln(writer, "Hello from vice-file-transfers")
+	_, _ = fmt.Fprintln(writer, "Hello from vice-file-transfers")
 }
 
 func main() {
