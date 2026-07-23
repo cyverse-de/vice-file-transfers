@@ -13,6 +13,9 @@ RUN go build --buildvcs=false .
 FROM harbor.cyverse.org/de/porklock:${porklock_tag}
 COPY --from=builder /go/src/github.com/cyverse-de/vice-file-transfers/vice-file-transfers /bin/vice-file-transfers
 COPY init_working_dir.sh /bin/init_working_dir.sh
+# app-exposer invokes the binary as /vice-file-transfers (absolute root path);
+# symlink so both /vice-file-transfers and /bin/vice-file-transfers work.
+RUN ln -s /bin/vice-file-transfers /vice-file-transfers
 ENTRYPOINT ["vice-file-transfers"]
 
 EXPOSE 60000
