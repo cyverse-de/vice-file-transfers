@@ -170,6 +170,7 @@ type App struct {
 func (a *App) downloadCommand() []string {
 	retval := []string{
 		"porklock",
+		"-Djava.net.preferIPv4Stack=true",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"get",
@@ -316,6 +317,7 @@ func (a *App) GetUploadStatus(writer http.ResponseWriter, request *http.Request)
 func (a *App) uploadCommand() []string {
 	retval := []string{
 		"porklock",
+		"-Djava.net.preferIPv4Stack=true",
 		"-jar",
 		"/usr/src/app/porklock-standalone.jar",
 		"put",
